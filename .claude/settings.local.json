@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(ls:*)",
+      "Bash(git mv:*)",
+      "Bash(move CONCEPTS.md docs )",
+      "Bash(move CLAUDE.md docs )",
+      "Bash(move:*)",
+      "Bash(tree:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}

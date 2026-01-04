@@ -1,0 +1,389 @@
+You are here: APIs > Overview > qTest API Specifications
+In this topic
+qTest API Specifications
+API Request
+API Response
+Authentication
+API sessions
+Structure of the URI
+HTTP Headers
+Response Codes
+Rate limits
+Links and Relationships
+JSON Data Types
+Data Object Model
+Project
+Defect Tracker
+Module
+Requirement
+Test Case
+Test Step
+Test Suite
+Test Run
+Test Log
+Test Step Log
+Execution Status
+Attachments
+Field
+Property
+Defect
+Defect Link
+qTest API Specifications
+Each qTest object, like a Test Case or a Requirement, is considered a resource.
+
+A resource is uniquely identified by a URI. To access a resource, the external application has to make an HTTPS request to the resource’s URI and get the response.
+
+API Request
+API Request includes the following elements:
+
+URI: Identifies the resource
+
+HTTPS method: Specifies the action that will be applied to the resource
+
+HTTPS headers: Specifies additional information, including the data format for the request body and the response body
+
+Request body: Includes data that need to be processed by qTest API
+
+API Response
+API Response includes the following elements:
+
+HTTPS status code: Indicates the result of the request
+
+HTTPS headers: Specifies additional information, including the data format for the response body
+
+Response body: Results for the process of the resource
+
+For automation integrations, make sure to Automation Settings in your qTest project. If this isn't enabled, the automation parameter of the API calls will be invalid.
+Attachment size limit for attachments uploaded via APIs is consistent with attachments uploaded via the UI:
+SaaS: Attachment size limit is 50 MB
+
+OnPremises: Attachment size limit can be configured in Site Administration
+
+The information below provides the specifications of qTest APIs V3 services available for Premium and Elite packages for both SaaS and OnPremises deployment models.
+
+The interactive documentation for the current API Specification can be found here.
+
+Authentication
+In order for an external application to access qTest resources, the client must call the Login API with an Authentication Token from the Download qTest Resources .
+
+This token will never expire unless the Client calls Revoke Token API, or terminates the session from Site Administration.
+API sessions
+API sessions do not count toward the following scenarios:
+
+Maximum three sessions allowed per user
+
+Account concurrency limit, if the subscription is based on the concurrent license model (instead of named license model).
+
+Read the Session Management topic for additional information on how API sessions are counted on a concurrent license model
+
+Structure of the URI
+URIs for resources provided by qTest API have the following structure: <qTest_base_URI>/<path_to_resource>
+
+SaaS: The <qTest_base_URI> has the form of https://<your_site_ name>.qTestnet.com
+
+OnPremises: The <qTest_base_URI> should be the URL to access your instance
+
+The <path_to_resource> is documented below for each resource:
+
+HTTP Headers
+Name	Description
+Authorization	A token included with requests to identify the requester. This header has to be included in all requests other than the log in request.
+Accept-Type	A standard MIME type describes the format of the response data that the API client can process. For more information, go to http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.17. Accept-Type in most of the requests will be application/json
+Content-Type	A standard MIME type describes the format of the object data. For more information, go to http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.17. Content-Type in most of the requests and responses will be application/json
+Response Codes
+Code	Description
+200	qTest is able to query or update the information of the requested resource successfully.
+201	qTest is able to create a resource with submitted information successfully.
+400	The submitted data is invalid to qTest. This is most likely due to wrong format, wrong passed in data type or unknown properties inside the data. In this case, correct the data before retrying.
+401	The request authentication information is missing. This is most likely due to the API client has not logged in, or the HTTP header Authorization is missing.
+402	Your qTest Edition does not support using API. If you wish to upgrade your qTest, please contact our Sales Representatives.
+403	The requester account does not have proper permissions to make the request. In this case, grant necessary permissions to the account on qTest admin.
+404	No resource identified by the requested URI could be found. This is most likely due to a wrong URI, or the resource has been deleted.
+405	The data format is not supported by qTest. In this case, check the HTTP headers Content-Type and Accept-Type.
+412	Preconditions have failed. The likeliest reason is some of the required properties are missing.
+429	API calls occur too frequently and could affect system performance.
+500	qTest has failed to process the request unexpectedly. This is likely caused by a qTest internal issue.
+Rate limits
+To improve performance and increase uptime, we have rate limits on API calls. API calls that occur too frequently and could affect system performance return a 429 response.
+
+Proactive throttling
+If possible, we recommend that you proactively throttle your API requests.
+
+To proactively throttle your API requests, have your applications inspect the x-ratelimit-remaining-minute response header. Then, determine the number of remaining API calls allowed for the current minute, and adjust your call rate to avoid being rate-limited.
+
+You can also use the x-ratelimit-remaining-month response header to plan your monthly API use.
+
+Reactive throttling
+If you can't throttle proactively, use the 429 response code as a signal to reduce your request rate. Your applications can retry the failed request after a delay. There are different approaches to this:
+
+Use the retry-after response header to determine how many seconds you need to wait before you retry the request.
+
+Implement an exponential backoff strategy with randomized delay. For more information, check out these resources on Wikipedia and in the AWS help.
+
+Rate limit headers
+These headers accompany all 429 responses.
+
+You can see the x-ratelimit headers in the table below.
+
+Note that we also support IETF ratelimit headers.
+
+Name	Description
+x-ratelimit-remaining-month	How many API calls you have available for the month.
+x-ratelimit-remaining-minute	The number of API calls available during the current rolling minute.
+x-ratelimit-limit-month	Your rate limit quota per month.
+x-ratelimit-limit-minute	Your rate limit quota per minute.
+Example response
+Here's an example response with explanations. Note that your actual API Gateway limits will differ.
+
+This is the 429 response code:
+
+HTTP/2 429
+There are 999,959 API calls available for the current month:
+
+date: Thu, 26 Jan 2023 17:21:48 GMT
+content-type: application/json; charset=utf-8
+x-ratelimit-remaining-month: 999959
+Wait 12 seconds before retrying the next API call:
+
+retry-after:12
+The per-minute rate limit resets in 12 seconds:
+
+ratelimit-reset:12
+There are no API calls available for the current minute:
+
+x-ratelimit-remaining-minute: 0
+The per-minute rate limit is 10 calls:
+
+ratelimit-limit: 10
+The monthly API call rate limit is 1,000,000:
+
+x-ratelimit-limit-month: 1000000
+The per-minute rate limit is 10 calls:
+
+x-ratelimit-limit-minute: 10
+The rate-limit response is:
+
+{
+"message":"API rate limit exceeded"
+}
+Links and Relationships
+qTest API’s response includes references to related resources which are referred to as links. The links enable the API client to discover related resources without having to either understand the relationship between resources or manually compose those resources’ URIs. Making use of these links will increase the compatibility of your application with future changes in qTest API. For example, consider the data of a Test Case:
+
+ {  
+      "links": [   
+      {   
+           "rel": "self",   
+           "href": "http://192.168.74.69:8486/tc/api/v3/projects/1/test-cases/355/versions/2238"   
+      },   
+      {   
+           "rel": "test-steps",   
+           "href": "http://192.168.74.69:8486/tc/api/v3/projects/1/test-cases/355/versions/2238/test-steps"   
+      },   
+      {   
+           "rel": "attachments",   
+           "href": "http://192.168.74.69:8486/tc/api/v3/projects/1/test-cases/355/attachments"   
+      }   
+      ],   
+      "id": 355,   
+      …   
+ }   
+By examining the “links” properties, the API client can get all test steps of this test cases at http://192.168.74.69:8486/tc/api/v3/projects/1/test-cases/355/versions/2238/test-steps
+
+Each link includes two properties:
+
+“href”: the URI that identifies the related resource.
+
+“rel”: to indicate the relationship between the requested resource and the related resources.
+
+Name	Description
+self	The requested resource itself
+test-cases	The relating test cases
+test-steps	The relating test steps
+attachments	The attachments of the requested resources
+execution-statuses	The available statuses for the requested Test Run
+JSON Data Types
+For data of type application/json, all JSON data type is supported, including:
+
+Number
+
+String
+
+Boolean
+
+Array
+
+Object
+
+Null
+
+DateTime: represented as a String of its ISO 8601 format (yyyyMMdd’T’HH:mm:ssZZ).
+
+Data Object Model
+qTest Data Object Model at the concept level:
+
+
+
+Project
+Attribute Name	Data Type	Description
+id	integer	id of the project
+name	string	name of project
+description	string	description of project
+sample	Boolean	true/false if sample qTest project
+status_id	 	status of project
+start_date	datetime	start date of project
+end_date	datetime	end date of project
+defect_tracking_systems	array	information related to the Defect Tracking Systems
+uuid	string	uuid of project
+template_id	 	site template id of project
+admin_ids	 	list assigned admin ids of project
+Defect Tracker
+If a qTest project is configured to an external defect tracking system via Integration Settings, qTest will provide the connection information with get list project API.
+
+Attribute Name	Data Type	Description
+id	Number	ID of the external defect tracking system
+url	String	URL of the external defect tracking system
+active	Boolean	indicates if qTest is using this connection or not
+connection_name	String	connection name of the configured external defect tracking system
+system_name	String	name of the system of the configured external defect tracking system
+Module
+Folders used to store Requirement and Test Case objects are also known as modules. A module can contain other modules in a nested hierarchy.
+
+Attribute Name	Data Type	Description
+id	Number	id of the module
+name	String	title of a module
+description	String	description of a module
+web_url	String	web URL of the object
+Requirement
+Attribute Name	Data Type	Description
+id	number	id of requirement
+name	string	name of requirement
+type	number	type of requirement
+priority	number	priority of requirement
+target	number	target release build
+description	string	description of requirement
+web_url	string	web URL of the object
+Test Case
+Attribute Name	Data Type	Description
+id	number	id of test case
+description	string	description of test case
+precondition	string	precondition of test case
+object_order	number	order of test case in module
+pid	string	format id of test case (for display)
+test_steps	array of test step	steps of test case
+test_case_version_id	long	id of version
+attachments	array of attachment	information for test case attachments
+web_url	string	web URL of the object
+Test Step
+A Test Step is nested inside a Test Case. A Test Case can have multiple Test Steps.
+
+Attribute Name	Data Type	Description
+id	Number	id of test step
+description	String	description of the test step
+expected	String	expected result of the test step
+order	Number	order of the test step in the test case
+attachments	Array of Attachment	information for test step attachments
+called_test_case	JSON object	
+This object includes 2 properties:
+
+id: ID of the called Test Case
+
+approved: if it is yes, the called Test Case will be automatically approved in case it is unapproved. Otherwise, it will throw an error if the called Test Case is unapproved
+
+Test Suite
+The container for a Test Run.
+
+Attribute Name	Data Type	Description
+Id	Number	id of test suite
+name	String	name of the test suite
+description	String	description of the test suite
+web_url	String	web URL of the object
+Test Run
+An executable instance of an approved Test Case, which is planned for test execution.
+
+Attribute Name	Data Type	Description
+Id	number	id of the test run
+test_case_version_id	number	id of test case version
+name	string	name of test run
+run_order	number	order of test run in test suite
+test_case	number	order of test run in test suite
+web_url	string	web URL of the object
+Test Log
+The execution result of a Test Run. A Test Run can have multiple Test Logs, once for each time it's executed.
+
+Attribute Name	Data Type	Description
+status	Boolean	execution status
+test_case_version_id	number	Id of Test Case version
+exe_start_date	date time	time when starting running Test Run (in ISO 8601 format)
+exe_end_date	date time	time when finishing running Test Run (in ISO 8601 format)
+user_id	number	Id of user who ran Test Run
+note	string	user’s comment
+test_step_logs	array of test step log	array of information for the test step log
+attachments	array of attachment	list of attachments of test log
+class_name	string	class name of automation test
+test_case	number	test case
+Test Step Log
+A test log contains a list of Test Step Logs. Each Test Step can have its own Execution Status and the actual result property.
+
+Attribute Name	Data Type	Description
+test_step_id	number	Id of Test Step. In case the test step is calling another Test Case, this attribute is the ID of the executed Test Step in the called Test Case
+parent_test_step_id	number	In case the test step is calling another Test Case, this attribute is the ID of the test calling Test Step
+user_id	number	id of the user who ran the Test Run
+status	execution status	Status of Test Step log
+actual_result	string	Actual result of Test Step
+called_test_case_id	number	Id of called Test Case if the Test Step is called "Test Step"
+called_test_case_name	string	Name of called Test Case if the Test Step is called "Test Step"
+run_order	number	Order of step in Test Run
+group	number	To use in case there’s called test case steps. All steps of a called test case belong to a group.
+test_step	 	test step
+defects	array of linked defect	array of information for the linked defect
+Execution Status
+Represents the result of an execution.
+
+Attribute Name	Data Type	Description
+id	Number	Id of Status
+name	String	Label of status
+Attachments
+qTest objects: Requirement, Test Case, Test Run, Test Step, Test Log. Test Step Logs can contain attachments.
+
+Attribute Name	Data Type	Description
+name	String	
+content_type	String	
+data	String	Base64Encode
+web_url	String	web URL of the object
+Field
+The field of qTest objects.
+
+Attribute Name	Data Type	Description
+id	long	
+label	String	
+required	Boolean	required field when submission new defect
+constrained	Boolean	if true, just use values in allowed_values only
+order	int	order of field for display
+multiple	Boolean	can have multi-values (sample check box custom field)
+attribute_type	String	can be String, LongText, DateTime, Number, Boolean, URL, ArrayNumber
+allowed_values	Array	array of Key + Value as data of drop-down list
+Property
+Include field's id and value.
+
+Attribute Name	Data Type	Description
+field_id	Number	
+field_value	String	
+Defect
+If a qTest project is connected to an external defect tracking system in Integration Settings, qTest will provide the connection information with get list project API.
+
+Attribute Name	Data Type	Description
+id	Number	Id of defect(s) in qTest
+external_defect_id	String	Id of defect in external defect tracking
+connection_id	Number	Id of defect tracking connection in qTest
+connection_id	Number	Id of defect tracking connection in qTest
+external_project_id	String	If it is a rally defect, external project id is “href” of rally project. It is for linking to exactly defect in Rally Web
+web_url	String	web URL of the object
+Defect Link
+Link across a test log step to a qTest defect or defect stored in an external tracking system.
+
+Attribute Name	Data Type	Description
+id	Number	Id of defect in qTest
+external_defect_id	String	Id of defect in external defect tracking
+connection_id	Number	Id of defect tracking connection in qTest
+external_project_id	String	If it is a rally defect, external project id is “href” of rally project. It is for linking to exactly defect in Rally Web.
+web_url	String	web URL of the object
