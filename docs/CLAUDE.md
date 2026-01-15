@@ -15,6 +15,7 @@ Python client for qTest Manager REST API. Direct integration - no Excel imports 
 - ✅ Full CRUD for test cases (create, read, update, delete)
 - ✅ Test run listing and retrieval
 - ✅ Test log (execution history) retrieval
+- ✅ Full CRUD for requirements (create, read, update, delete)
 
 ## Credentials
 Stored in `.env` (gitignored):
@@ -46,6 +47,11 @@ All requested features have been implemented and tested!
 
 ### ✅ Requirements (Epics) - DONE
 - `get_requirements(project_id)` - List requirements
+- `get_requirement(requirement_id)` - Get single requirement
+- `create_requirement(name, parent_id)` - Create new requirement
+- `update_requirement(requirement_id, name)` - Update existing requirement
+- `delete_requirement(requirement_id)` - Delete a requirement
+- `get_requirement_fields(project_id)` - Get available requirement fields/properties
 - `find_requirement_by_name(name)` - Search for requirement by epic name/key
 - `link_test_to_requirement(test_case_id, requirement_id)` - Link test to requirement
 
@@ -70,6 +76,11 @@ All requested features have been implemented and tested!
 
 ### API Endpoints Used
 - `GET /api/v3/projects/{id}/requirements` - List requirements
+- `GET /api/v3/projects/{id}/requirements/{rid}` - Get single requirement
+- `POST /api/v3/projects/{id}/requirements` - Create requirement
+- `PUT /api/v3/projects/{id}/requirements/{rid}` - Update requirement
+- `DELETE /api/v3/projects/{id}/requirements/{rid}` - Delete requirement
+- `GET /api/v3/projects/{id}/settings/requirements/fields` - Get requirement fields
 - `POST /api/v3/projects/{id}/req-tc-links` - Link test cases to requirements
 - `GET /api/v3/projects/{id}/releases` - List releases
 - `GET /api/v3/projects/{id}/test-cycles` - List test cycles
@@ -103,7 +114,7 @@ See [example_workflow.py](../examples/example_workflow.py) for a complete workfl
 
 ## GitHub Issues
 - **#1** (CLOSED): Fixed add_test_to_cycle() 400 error
-- **#2** (OPEN): More helper methods - partially complete, requirement CRUD remaining
+- **#2** (CLOSED): More helper methods - requirement CRUD complete
 - **#3** (OPEN): Better error handling and retry logic
 - **#4** (OPEN): Bulk operations support
 - **#5** (OPEN): Search and query improvements

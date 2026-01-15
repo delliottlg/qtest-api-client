@@ -259,6 +259,109 @@ class QTestClient:
             params['parentId'] = parent_id
         return self._get(f"projects/{pid}/requirements", params)
 
+    def get_requirement(self, requirement_id: int, project_id: int = None) -> Dict:
+        """
+        Get a specific requirement by ID.
+
+        Args:
+            requirement_id: ID of the requirement
+            project_id: Project ID (uses default if not specified)
+
+        Returns:
+            Requirement dictionary with properties, name, etc.
+        """
+        pid = project_id or self.project_id
+        return self._get(f"projects/{pid}/requirements/{requirement_id}")
+
+    def create_requirement(self, name: str, parent_id: int,
+                           description: str = None,
+                           properties: List[Dict] = None,
+                           project_id: int = None) -> Dict:
+        """
+        Create a new requirement.
+
+        Args:
+            name: Requirement name (required)
+            parent_id: Parent module ID (required - requirements must be in a module)
+            description: Requirement description (optional)
+            properties: List of property dicts with field_id and field_value (optional)
+            project_id: Project ID (uses default if not specified)
+
+        Returns:
+            Created requirement data with id, name, web_url, etc.
+        """
+        pid = project_id or self.project_id
+
+        data = {'name': name}
+        if properties:
+            data['properties'] = properties
+
+        params = {'parentId': parent_id}
+        url = f"{self.api_url}/projects/{pid}/requirements"
+        response = self.session.post(url, json=data, params=params)
+        response.raise_for_status()
+        return response.json()
+
+    def update_requirement(self, requirement_id: int, name: str = None,
+                           properties: List[Dict] = None,
+                           project_id: int = None) -> Dict:
+        """
+        Update an existing requirement.
+
+        Args:
+            requirement_id: ID of requirement to update
+            name: New name (optional)
+            properties: List of property dicts with field_id and field_value (optional)
+            project_id: Project ID (uses default if not specified)
+
+        Returns:
+            Updated requirement data
+        """
+        pid = project_id or self.project_id
+
+        data = {}
+        if name is not None:
+            data['name'] = name
+        if properties is not None:
+            data['properties'] = properties
+
+        url = f"{self.api_url}/projects/{pid}/requirements/{requirement_id}"
+        response = self.session.put(url, json=data)
+        response.raise_for_status()
+        return response.json()
+
+    def delete_requirement(self, requirement_id: int, project_id: int = None) -> bool:
+        """
+        Delete a requirement.
+
+        Args:
+            requirement_id: ID of requirement to delete
+            project_id: Project ID (uses default if not specified)
+
+        Returns:
+            True if deleted successfully
+        """
+        pid = project_id or self.project_id
+        url = f"{self.api_url}/projects/{pid}/requirements/{requirement_id}"
+        response = self.session.delete(url)
+        response.raise_for_status()
+        return True
+
+    def get_requirement_fields(self, project_id: int = None) -> List[Dict]:
+        """
+        Get all available fields for requirements in this project.
+
+        Useful for understanding what properties can be set when creating/updating.
+
+        Args:
+            project_id: Project ID (uses default if not specified)
+
+        Returns:
+            List of field definitions with id, label, attribute_type, allowed_values, etc.
+        """
+        pid = project_id or self.project_id
+        return self._get(f"projects/{pid}/settings/requirements/fields")
+
     def find_requirement_by_name(self, name: str, project_id: int = None) -> Optional[Dict]:
         """
         Find a requirement by name or key (e.g., 'SGD-1234').
