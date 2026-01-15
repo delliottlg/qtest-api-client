@@ -4,15 +4,65 @@ Direct integration with qTest Manager API - no Excel needed!
 """
 
 import os
+import time
 import requests
 from typing import List, Tuple, Optional, Dict, Any
 from dotenv import load_dotenv
 
 
+# ========== Custom Exceptions ==========
+
+class QTestError(Exception):
+    """Base exception for qTest API errors"""
+    def __init__(self, message: str, status_code: int = None, response: requests.Response = None):
+        self.message = message
+        self.status_code = status_code
+        self.response = response
+        super().__init__(self.message)
+
+
+class QTestAuthenticationError(QTestError):
+    """Authentication failed (401) - invalid or expired token"""
+    pass
+
+
+class QTestPermissionError(QTestError):
+    """Permission denied (403) - user lacks required permissions"""
+    pass
+
+
+class QTestNotFoundError(QTestError):
+    """Resource not found (404) - item doesn't exist or was deleted"""
+    pass
+
+
+class QTestValidationError(QTestError):
+    """Validation failed (400/412) - invalid data submitted"""
+    pass
+
+
+class QTestRateLimitError(QTestError):
+    """Rate limit exceeded (429) - too many requests"""
+    def __init__(self, message: str, retry_after: int = None, **kwargs):
+        super().__init__(message, **kwargs)
+        self.retry_after = retry_after
+
+
+class QTestServerError(QTestError):
+    """Server error (5xx) - qTest internal error"""
+    pass
+
+
 class QTestClient:
     """Client for qTest Manager REST API"""
 
-    def __init__(self, base_url: str = None, bearer_token: str = None, project_id: int = None):
+    # Default retry configuration
+    DEFAULT_MAX_RETRIES = 3
+    DEFAULT_RETRY_DELAY = 1.0  # seconds
+    DEFAULT_TIMEOUT = 30  # seconds
+
+    def __init__(self, base_url: str = None, bearer_token: str = None, project_id: int = None,
+                 max_retries: int = None, retry_delay: float = None, timeout: int = None):
         """
         Initialize the qTest client.
 
@@ -20,6 +70,9 @@ class QTestClient:
             base_url: qTest instance URL (e.g., https://yoursite.qtestnet.com)
             bearer_token: Bearer token for authentication
             project_id: Default project ID to use
+            max_retries: Max retry attempts for transient failures (default: 3)
+            retry_delay: Base delay between retries in seconds (default: 1.0)
+            timeout: Request timeout in seconds (default: 30)
 
         If not provided, values are loaded from .env file.
         """
@@ -32,6 +85,11 @@ class QTestClient:
         if not self.base_url or not self.bearer_token:
             raise ValueError("Missing QTEST_BASE_URL or QTEST_BEARER_TOKEN. Check your .env file.")
 
+        # Retry configuration
+        self.max_retries = max_retries if max_retries is not None else self.DEFAULT_MAX_RETRIES
+        self.retry_delay = retry_delay if retry_delay is not None else self.DEFAULT_RETRY_DELAY
+        self.timeout = timeout if timeout is not None else self.DEFAULT_TIMEOUT
+
         self.api_url = f"{self.base_url}/api/v3"
         self.session = requests.Session()
         self.session.headers.update({
@@ -40,22 +98,152 @@ class QTestClient:
             'Accept': 'application/json'
         })
 
-    def _get(self, endpoint: str, params: dict = None) -> Any:
-        """Make a GET request to the API"""
-        url = f"{self.api_url}/{endpoint}"
-        response = self.session.get(url, params=params)
-        response.raise_for_status()
-        return response.json()
+    def _handle_error(self, response: requests.Response, context: str = None) -> None:
+        """
+        Convert HTTP errors to appropriate QTestError exceptions.
 
-    def _post(self, endpoint: str, data: dict) -> Any:
-        """Make a POST request to the API"""
+        Args:
+            response: The requests Response object
+            context: Optional context string (e.g., "test case 12345")
+        """
+        status = response.status_code
+        ctx = f" ({context})" if context else ""
+
+        # Try to extract error message from response body
+        try:
+            body = response.json()
+            api_message = body.get('message', '') or body.get('error', '')
+        except Exception:
+            api_message = response.text[:200] if response.text else ''
+
+        if status == 400:
+            raise QTestValidationError(
+                f"Invalid request{ctx}: {api_message or 'Bad request data'}",
+                status_code=status, response=response
+            )
+        elif status == 401:
+            raise QTestAuthenticationError(
+                f"Authentication failed{ctx}: Check your bearer token",
+                status_code=status, response=response
+            )
+        elif status == 403:
+            raise QTestPermissionError(
+                f"Permission denied{ctx}: User lacks required permissions",
+                status_code=status, response=response
+            )
+        elif status == 404:
+            raise QTestNotFoundError(
+                f"Not found{ctx}: Resource doesn't exist or was deleted",
+                status_code=status, response=response
+            )
+        elif status == 412:
+            raise QTestValidationError(
+                f"Precondition failed{ctx}: {api_message or 'Required fields missing'}",
+                status_code=status, response=response
+            )
+        elif status == 429:
+            retry_after = int(response.headers.get('retry-after', 60))
+            raise QTestRateLimitError(
+                f"Rate limit exceeded{ctx}: Retry after {retry_after}s",
+                status_code=status, response=response, retry_after=retry_after
+            )
+        elif 500 <= status < 600:
+            raise QTestServerError(
+                f"qTest server error{ctx}: {api_message or f'HTTP {status}'}",
+                status_code=status, response=response
+            )
+        else:
+            raise QTestError(
+                f"API error{ctx}: HTTP {status} - {api_message or response.reason}",
+                status_code=status, response=response
+            )
+
+    def _request(self, method: str, endpoint: str, params: dict = None,
+                 data: dict = None, context: str = None) -> Any:
+        """
+        Make an HTTP request with retry logic for transient failures.
+
+        Args:
+            method: HTTP method (GET, POST, PUT, DELETE)
+            endpoint: API endpoint (without base URL)
+            params: Query parameters
+            data: JSON body data
+            context: Context string for error messages
+
+        Returns:
+            Parsed JSON response or empty dict for 204 responses
+        """
         url = f"{self.api_url}/{endpoint}"
-        response = self.session.post(url, json=data)
-        response.raise_for_status()
-        # Some endpoints return empty response (204 No Content)
-        if response.status_code == 204 or not response.text:
-            return {}
-        return response.json()
+        last_exception = None
+
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = self.session.request(
+                    method=method,
+                    url=url,
+                    params=params,
+                    json=data,
+                    timeout=self.timeout
+                )
+
+                # Success
+                if response.ok:
+                    if response.status_code == 204 or not response.text:
+                        return {}
+                    return response.json()
+
+                # Handle rate limiting with retry
+                if response.status_code == 429 and attempt < self.max_retries:
+                    retry_after = int(response.headers.get('retry-after', self.retry_delay * (2 ** attempt)))
+                    time.sleep(retry_after)
+                    continue
+
+                # Handle server errors with retry
+                if response.status_code >= 500 and attempt < self.max_retries:
+                    time.sleep(self.retry_delay * (2 ** attempt))
+                    continue
+
+                # Non-retryable error
+                self._handle_error(response, context)
+
+            except requests.exceptions.Timeout as e:
+                last_exception = e
+                if attempt < self.max_retries:
+                    time.sleep(self.retry_delay * (2 ** attempt))
+                    continue
+                raise QTestError(
+                    f"Request timeout after {self.timeout}s ({context or endpoint})",
+                    response=None
+                )
+
+            except requests.exceptions.ConnectionError as e:
+                last_exception = e
+                if attempt < self.max_retries:
+                    time.sleep(self.retry_delay * (2 ** attempt))
+                    continue
+                raise QTestError(
+                    f"Connection failed: {str(e)} ({context or endpoint})",
+                    response=None
+                )
+
+        # Should not reach here, but just in case
+        raise QTestError(f"Request failed after {self.max_retries} retries", response=None)
+
+    def _get(self, endpoint: str, params: dict = None, context: str = None) -> Any:
+        """Make a GET request to the API"""
+        return self._request('GET', endpoint, params=params, context=context)
+
+    def _post(self, endpoint: str, data: dict, context: str = None) -> Any:
+        """Make a POST request to the API"""
+        return self._request('POST', endpoint, data=data, context=context)
+
+    def _put(self, endpoint: str, data: dict, context: str = None) -> Any:
+        """Make a PUT request to the API"""
+        return self._request('PUT', endpoint, data=data, context=context)
+
+    def _delete(self, endpoint: str, context: str = None) -> Any:
+        """Make a DELETE request to the API"""
+        return self._request('DELETE', endpoint, context=context)
 
     # ========== Projects ==========
 
@@ -168,11 +356,11 @@ class QTestClient:
             'test_steps': test_steps
         }
 
-        params = {'parentId': module_id}
-        url = f"{self.api_url}/projects/{pid}/test-cases"
-        response = self.session.post(url, json=data, params=params)
-        response.raise_for_status()
-        return response.json()
+        return self._request(
+            'POST', f"projects/{pid}/test-cases",
+            params={'parentId': module_id}, data=data,
+            context=f"create test case '{name}'"
+        )
 
     def update_test_case(self, test_case_id: int, name: str = None,
                          description: str = None, precondition: str = None,
@@ -212,10 +400,10 @@ class QTestClient:
                 })
             data['test_steps'] = test_steps
 
-        url = f"{self.api_url}/projects/{pid}/test-cases/{test_case_id}"
-        response = self.session.put(url, json=data)
-        response.raise_for_status()
-        return response.json()
+        return self._put(
+            f"projects/{pid}/test-cases/{test_case_id}", data,
+            context=f"test case {test_case_id}"
+        )
 
     def delete_test_case(self, test_case_id: int, project_id: int = None) -> bool:
         """
@@ -229,9 +417,7 @@ class QTestClient:
             True if deleted successfully
         """
         pid = project_id or self.project_id
-        url = f"{self.api_url}/projects/{pid}/test-cases/{test_case_id}"
-        response = self.session.delete(url)
-        response.raise_for_status()
+        self._delete(f"projects/{pid}/test-cases/{test_case_id}", context=f"test case {test_case_id}")
         return True
 
     # ========== Requirements (Epics) ==========
@@ -296,11 +482,11 @@ class QTestClient:
         if properties:
             data['properties'] = properties
 
-        params = {'parentId': parent_id}
-        url = f"{self.api_url}/projects/{pid}/requirements"
-        response = self.session.post(url, json=data, params=params)
-        response.raise_for_status()
-        return response.json()
+        return self._request(
+            'POST', f"projects/{pid}/requirements",
+            params={'parentId': parent_id}, data=data,
+            context=f"create requirement '{name}'"
+        )
 
     def update_requirement(self, requirement_id: int, name: str = None,
                            properties: List[Dict] = None,
@@ -325,10 +511,10 @@ class QTestClient:
         if properties is not None:
             data['properties'] = properties
 
-        url = f"{self.api_url}/projects/{pid}/requirements/{requirement_id}"
-        response = self.session.put(url, json=data)
-        response.raise_for_status()
-        return response.json()
+        return self._put(
+            f"projects/{pid}/requirements/{requirement_id}", data,
+            context=f"requirement {requirement_id}"
+        )
 
     def delete_requirement(self, requirement_id: int, project_id: int = None) -> bool:
         """
@@ -342,9 +528,7 @@ class QTestClient:
             True if deleted successfully
         """
         pid = project_id or self.project_id
-        url = f"{self.api_url}/projects/{pid}/requirements/{requirement_id}"
-        response = self.session.delete(url)
-        response.raise_for_status()
+        self._delete(f"projects/{pid}/requirements/{requirement_id}", context=f"requirement {requirement_id}")
         return True
 
     def get_requirement_fields(self, project_id: int = None) -> List[Dict]:
@@ -498,14 +682,16 @@ class QTestClient:
             'parentType': 'test-cycle'
         }
         # qTest requires 'name' and 'test_case' with 'id' inside
+        run_name = name or f"Run-{test_case_id}"
         data = {
-            'name': name or f"Run-{test_case_id}",
+            'name': run_name,
             'test_case': {'id': test_case_id}
         }
-        url = f"{self.api_url}/projects/{pid}/test-runs"
-        response = self.session.post(url, json=data, params=params)
-        response.raise_for_status()
-        return response.json()
+        return self._request(
+            'POST', f"projects/{pid}/test-runs",
+            params=params, data=data,
+            context=f"add test case {test_case_id} to cycle {cycle_id}"
+        )
 
     # ========== Test Run Execution ==========
 
@@ -533,15 +719,17 @@ class QTestClient:
             params['parentId'] = parent_id
 
         # qTest requires 'name' and 'test_case' with 'id' inside
+        run_name = name or f"Run-{test_case_id}"
         data = {
-            'name': name or f"Run-{test_case_id}",
+            'name': run_name,
             'test_case': {'id': test_case_id}
         }
 
-        url = f"{self.api_url}/projects/{pid}/test-runs"
-        response = self.session.post(url, json=data, params=params)
-        response.raise_for_status()
-        return response.json()
+        return self._request(
+            'POST', f"projects/{pid}/test-runs",
+            params=params, data=data,
+            context=f"create test run for test case {test_case_id}"
+        )
 
     def update_test_run_status(self, run_id: int, status: str,
                                 note: str = None, project_id: int = None) -> Dict:
@@ -565,7 +753,10 @@ class QTestClient:
         if note:
             data['note'] = note
 
-        return self._post(f"projects/{pid}/test-runs/{run_id}/test-logs", data)
+        return self._post(
+            f"projects/{pid}/test-runs/{run_id}/test-logs", data,
+            context=f"update test run {run_id} to '{status}'"
+        )
 
     def get_test_logs(self, run_id: int, project_id: int = None) -> List[Dict]:
         """

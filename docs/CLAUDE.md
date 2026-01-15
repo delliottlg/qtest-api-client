@@ -16,6 +16,7 @@ Python client for qTest Manager REST API. Direct integration - no Excel imports 
 - ✅ Test run listing and retrieval
 - ✅ Test log (execution history) retrieval
 - ✅ Full CRUD for requirements (create, read, update, delete)
+- ✅ Error handling with custom exceptions and retry logic
 
 ## Credentials
 Stored in `.env` (gitignored):
@@ -115,6 +116,6 @@ See [example_workflow.py](../examples/example_workflow.py) for a complete workfl
 ## GitHub Issues
 - **#1** (CLOSED): Fixed add_test_to_cycle() 400 error
 - **#2** (CLOSED): More helper methods - requirement CRUD complete
-- **#3** (OPEN): Better error handling and retry logic
+- **#3** (CLOSED): Better error handling and retry logic
 - **#4** (OPEN): Bulk operations support
 - **#5** (OPEN): Search and query improvements
