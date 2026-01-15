@@ -8,10 +8,13 @@ Python client for qTest Manager REST API. Direct integration - no Excel imports 
 - ✅ Can create test cases with steps
 - ✅ Can list projects, modules, test cases
 - ✅ Successfully created test case TC-3722 via API
-- ✅ **NEW**: Requirements/Epic linking implemented
-- ✅ **NEW**: Releases & Test Cycles support
-- ✅ **NEW**: Test Run execution and status updates
-- ✅ **NEW**: Project reorganized into clean folder structure
+- ✅ Requirements/Epic linking implemented
+- ✅ Releases & Test Cycles support
+- ✅ Test Run execution and status updates
+- ✅ Project reorganized into clean folder structure
+- ✅ Full CRUD for test cases (create, read, update, delete)
+- ✅ Test run listing and retrieval
+- ✅ Test log (execution history) retrieval
 
 ## Credentials
 Stored in `.env` (gitignored):
@@ -54,6 +57,16 @@ All requested features have been implemented and tested!
 ### ✅ Test Run Execution - DONE
 - `create_test_run(test_case_id, parent_id, parent_type)` - Create a test run
 - `update_test_run_status(run_id, status, note)` - Mark test as passed/failed/blocked
+- `get_test_runs(parent_id, parent_type)` - List test runs in a cycle/suite
+- `get_test_run(run_id)` - Get single test run details
+- `get_test_logs(run_id)` - Get execution history for a test run
+
+### ✅ Test Case CRUD - DONE
+- `create_test_case(name, description, steps, module_id)` - Create new test case
+- `get_test_case(test_case_id)` - Get single test case
+- `get_test_cases(module_id)` - List test cases
+- `update_test_case(test_case_id, name, description, steps)` - Update existing test case
+- `delete_test_case(test_case_id)` - Delete a test case
 
 ### API Endpoints Used
 - `GET /api/v3/projects/{id}/requirements` - List requirements
@@ -79,3 +92,18 @@ See [example_workflow.py](../examples/example_workflow.py) for a complete workfl
   - **Created dedicated "API Testing" project (ID: 127166)** for safe experimentation
   - All future API development should use this sandbox project
   - Reorganized project into clean folder structure (docs/, examples/, tests/, scripts/)
+- **2026-01-14**: Bug fixes and new methods:
+  - Fixed `add_test_to_cycle()` - was returning 400 error (needed `name` + `test_case.id` format)
+  - Fixed `create_test_run()` - same issue
+  - Added `get_test_runs()`, `get_test_run()`, `get_test_logs()`
+  - Added `update_test_case()`, `delete_test_case()`
+  - Fixed paginated API responses to return `items` array
+  - Pushed to GitHub: https://github.com/delliottlg/qtest-api-client
+  - Closed Issue #1, updated Issue #2
+
+## GitHub Issues
+- **#1** (CLOSED): Fixed add_test_to_cycle() 400 error
+- **#2** (OPEN): More helper methods - partially complete, requirement CRUD remaining
+- **#3** (OPEN): Better error handling and retry logic
+- **#4** (OPEN): Bulk operations support
+- **#5** (OPEN): Search and query improvements
