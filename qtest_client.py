@@ -174,6 +174,66 @@ class QTestClient:
         response.raise_for_status()
         return response.json()
 
+    def update_test_case(self, test_case_id: int, name: str = None,
+                         description: str = None, precondition: str = None,
+                         steps: Optional[List[Tuple[str, str]]] = None,
+                         project_id: int = None) -> Dict:
+        """
+        Update an existing test case.
+
+        Args:
+            test_case_id: ID of test case to update
+            name: New name (optional)
+            description: New description (optional)
+            precondition: New precondition (optional)
+            steps: New steps as list of (description, expected) tuples (optional)
+            project_id: Project ID (uses default if not specified)
+
+        Returns:
+            Updated test case data
+        """
+        pid = project_id or self.project_id
+
+        # Build update data - only include fields that are provided
+        data = {}
+        if name is not None:
+            data['name'] = name
+        if description is not None:
+            data['description'] = description
+        if precondition is not None:
+            data['precondition'] = precondition
+        if steps is not None:
+            test_steps = []
+            for order, (step_desc, expected) in enumerate(steps, 1):
+                test_steps.append({
+                    'description': step_desc,
+                    'expected': expected,
+                    'order': order
+                })
+            data['test_steps'] = test_steps
+
+        url = f"{self.api_url}/projects/{pid}/test-cases/{test_case_id}"
+        response = self.session.put(url, json=data)
+        response.raise_for_status()
+        return response.json()
+
+    def delete_test_case(self, test_case_id: int, project_id: int = None) -> bool:
+        """
+        Delete a test case.
+
+        Args:
+            test_case_id: ID of test case to delete
+            project_id: Project ID (uses default if not specified)
+
+        Returns:
+            True if deleted successfully
+        """
+        pid = project_id or self.project_id
+        url = f"{self.api_url}/projects/{pid}/test-cases/{test_case_id}"
+        response = self.session.delete(url)
+        response.raise_for_status()
+        return True
+
     # ========== Requirements (Epics) ==========
 
     def get_requirements(self, project_id: int = None, parent_id: int = None,
@@ -273,14 +333,56 @@ class QTestClient:
             params['parentId'] = release_id
         return self._get(f"projects/{pid}/test-cycles", params)
 
+    def get_test_runs(self, parent_id: int = None, parent_type: str = 'test-cycle',
+                      project_id: int = None, page: int = 1, size: int = 100) -> List[Dict]:
+        """
+        Get test runs, optionally filtered by parent container.
+
+        Args:
+            parent_id: Filter by parent ID (cycle, suite, or release)
+            parent_type: Type of parent - 'test-cycle', 'test-suite', 'release', or 'root'
+            project_id: Project ID (uses default if not specified)
+            page: Page number (1-indexed)
+            size: Results per page
+
+        Returns:
+            List of test run dictionaries
+        """
+        pid = project_id or self.project_id
+        params = {
+            'page': page,
+            'size': size
+        }
+        if parent_id:
+            params['parentId'] = parent_id
+            params['parentType'] = parent_type
+        result = self._get(f"projects/{pid}/test-runs", params)
+        # Response is paginated - return items list
+        return result.get('items', result) if isinstance(result, dict) else result
+
+    def get_test_run(self, run_id: int, project_id: int = None) -> Dict:
+        """
+        Get a specific test run by ID.
+
+        Args:
+            run_id: ID of the test run
+            project_id: Project ID (uses default if not specified)
+
+        Returns:
+            Test run dictionary
+        """
+        pid = project_id or self.project_id
+        return self._get(f"projects/{pid}/test-runs/{run_id}")
+
     def add_test_to_cycle(self, test_case_id: int, cycle_id: int,
-                          project_id: int = None) -> Dict:
+                          name: str = None, project_id: int = None) -> Dict:
         """
         Add a test case to a test cycle by creating a test run.
 
         Args:
             test_case_id: ID of the test case
             cycle_id: ID of the test cycle
+            name: Name for the test run (defaults to "Run-{test_case_id}")
             project_id: Project ID (uses default if not specified)
 
         Returns:
@@ -292,8 +394,10 @@ class QTestClient:
             'parentId': cycle_id,
             'parentType': 'test-cycle'
         }
+        # qTest requires 'name' and 'test_case' with 'id' inside
         data = {
-            'test_case_id': test_case_id
+            'name': name or f"Run-{test_case_id}",
+            'test_case': {'id': test_case_id}
         }
         url = f"{self.api_url}/projects/{pid}/test-runs"
         response = self.session.post(url, json=data, params=params)
@@ -312,7 +416,7 @@ class QTestClient:
             test_case_id: ID of the test case to create a run from
             parent_id: ID of the parent container (0 or None for root)
             parent_type: Type of parent - 'root', 'release', 'test-cycle', or 'test-suite'
-            name: Optional name for the test run
+            name: Name for the test run (defaults to "Run-{test_case_id}")
             project_id: Project ID (uses default if not specified)
 
         Returns:
@@ -325,9 +429,11 @@ class QTestClient:
         if parent_id is not None:
             params['parentId'] = parent_id
 
-        data = {'test_case_id': test_case_id}
-        if name:
-            data['name'] = name
+        # qTest requires 'name' and 'test_case' with 'id' inside
+        data = {
+            'name': name or f"Run-{test_case_id}",
+            'test_case': {'id': test_case_id}
+        }
 
         url = f"{self.api_url}/projects/{pid}/test-runs"
         response = self.session.post(url, json=data, params=params)
@@ -357,6 +463,22 @@ class QTestClient:
             data['note'] = note
 
         return self._post(f"projects/{pid}/test-runs/{run_id}/test-logs", data)
+
+    def get_test_logs(self, run_id: int, project_id: int = None) -> List[Dict]:
+        """
+        Get test logs (execution history) for a test run.
+
+        Args:
+            run_id: ID of the test run
+            project_id: Project ID (uses default if not specified)
+
+        Returns:
+            List of test log dictionaries
+        """
+        pid = project_id or self.project_id
+        result = self._get(f"projects/{pid}/test-runs/{run_id}/test-logs")
+        # Response may be paginated - return items list
+        return result.get('items', result) if isinstance(result, dict) else result
 
     # ========== Convenience Methods ==========
 
