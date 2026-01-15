@@ -6,7 +6,8 @@ Direct integration with qTest Manager API - no Excel needed!
 import os
 import time
 import requests
-from typing import List, Tuple, Optional, Dict, Any
+from typing import List, Tuple, Optional, Dict, Any, Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
 
 
@@ -773,6 +774,219 @@ class QTestClient:
         result = self._get(f"projects/{pid}/test-runs/{run_id}/test-logs")
         # Response may be paginated - return items list
         return result.get('items', result) if isinstance(result, dict) else result
+
+    # ========== Bulk Operations ==========
+
+    def bulk_create_test_cases(self, test_cases: List[Dict], module_id: int,
+                                project_id: int = None, max_workers: int = 5,
+                                on_progress: Callable[[int, int, Dict], None] = None) -> Dict:
+        """
+        Create multiple test cases concurrently.
+
+        Args:
+            test_cases: List of dicts with keys: name, description, precondition, steps
+                        steps is a list of (description, expected) tuples
+            module_id: Module ID to create test cases in
+            project_id: Project ID (uses default if not specified)
+            max_workers: Max concurrent requests (default: 5)
+            on_progress: Callback(completed, total, result) called after each creation
+
+        Returns:
+            Dict with 'succeeded' (list of created test cases) and 'failed' (list of errors)
+
+        Example:
+            test_cases = [
+                {'name': 'Test 1', 'steps': [('Step 1', 'Expected 1')]},
+                {'name': 'Test 2', 'description': 'Desc', 'steps': []},
+            ]
+            results = client.bulk_create_test_cases(test_cases, module_id=12345)
+        """
+        succeeded = []
+        failed = []
+        total = len(test_cases)
+
+        def create_one(tc_data):
+            return self.create_test_case(
+                name=tc_data['name'],
+                description=tc_data.get('description', ''),
+                precondition=tc_data.get('precondition', ''),
+                steps=tc_data.get('steps'),
+                module_id=module_id,
+                project_id=project_id
+            )
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_tc = {executor.submit(create_one, tc): tc for tc in test_cases}
+
+            for future in as_completed(future_to_tc):
+                tc_data = future_to_tc[future]
+                try:
+                    result = future.result()
+                    succeeded.append(result)
+                    if on_progress:
+                        on_progress(len(succeeded) + len(failed), total, {'success': True, 'data': result})
+                except Exception as e:
+                    failed.append({'input': tc_data, 'error': str(e)})
+                    if on_progress:
+                        on_progress(len(succeeded) + len(failed), total, {'success': False, 'error': str(e)})
+
+        return {'succeeded': succeeded, 'failed': failed}
+
+    def bulk_link_to_requirement(self, test_case_ids: List[int], requirement_id: int,
+                                  project_id: int = None) -> Dict:
+        """
+        Link multiple test cases to a requirement in a single API call.
+
+        Args:
+            test_case_ids: List of test case IDs to link
+            requirement_id: Requirement ID to link them to
+            project_id: Project ID (uses default if not specified)
+
+        Returns:
+            API response (empty dict on success)
+
+        Note: This uses the native qTest batch endpoint for efficiency.
+        """
+        pid = project_id or self.project_id
+        data = {
+            'requirement_id': requirement_id,
+            'testcase_ids': test_case_ids
+        }
+        return self._post(
+            f"projects/{pid}/req-tc-links", data,
+            context=f"link {len(test_case_ids)} test cases to requirement {requirement_id}"
+        )
+
+    def bulk_add_to_cycle(self, test_case_ids: List[int], cycle_id: int,
+                           project_id: int = None, max_workers: int = 5,
+                           on_progress: Callable[[int, int, Dict], None] = None) -> Dict:
+        """
+        Add multiple test cases to a test cycle concurrently.
+
+        Args:
+            test_case_ids: List of test case IDs to add
+            cycle_id: Test cycle ID to add them to
+            project_id: Project ID (uses default if not specified)
+            max_workers: Max concurrent requests (default: 5)
+            on_progress: Callback(completed, total, result) called after each addition
+
+        Returns:
+            Dict with 'succeeded' (list of created test runs) and 'failed' (list of errors)
+        """
+        succeeded = []
+        failed = []
+        total = len(test_case_ids)
+
+        def add_one(tc_id):
+            return self.add_test_to_cycle(tc_id, cycle_id, project_id=project_id)
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_id = {executor.submit(add_one, tc_id): tc_id for tc_id in test_case_ids}
+
+            for future in as_completed(future_to_id):
+                tc_id = future_to_id[future]
+                try:
+                    result = future.result()
+                    succeeded.append(result)
+                    if on_progress:
+                        on_progress(len(succeeded) + len(failed), total, {'success': True, 'data': result})
+                except Exception as e:
+                    failed.append({'test_case_id': tc_id, 'error': str(e)})
+                    if on_progress:
+                        on_progress(len(succeeded) + len(failed), total, {'success': False, 'error': str(e)})
+
+        return {'succeeded': succeeded, 'failed': failed}
+
+    def bulk_update_test_run_status(self, updates: List[Dict], project_id: int = None,
+                                     max_workers: int = 5,
+                                     on_progress: Callable[[int, int, Dict], None] = None) -> Dict:
+        """
+        Update multiple test run statuses concurrently.
+
+        Args:
+            updates: List of dicts with keys: run_id, status, note (optional)
+            project_id: Project ID (uses default if not specified)
+            max_workers: Max concurrent requests (default: 5)
+            on_progress: Callback(completed, total, result) called after each update
+
+        Returns:
+            Dict with 'succeeded' (list of test logs) and 'failed' (list of errors)
+
+        Example:
+            updates = [
+                {'run_id': 123, 'status': 'Passed'},
+                {'run_id': 456, 'status': 'Failed', 'note': 'Bug found'},
+            ]
+            results = client.bulk_update_test_run_status(updates)
+        """
+        succeeded = []
+        failed = []
+        total = len(updates)
+
+        def update_one(update):
+            return self.update_test_run_status(
+                run_id=update['run_id'],
+                status=update['status'],
+                note=update.get('note'),
+                project_id=project_id
+            )
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_update = {executor.submit(update_one, u): u for u in updates}
+
+            for future in as_completed(future_to_update):
+                update = future_to_update[future]
+                try:
+                    result = future.result()
+                    succeeded.append(result)
+                    if on_progress:
+                        on_progress(len(succeeded) + len(failed), total, {'success': True, 'data': result})
+                except Exception as e:
+                    failed.append({'input': update, 'error': str(e)})
+                    if on_progress:
+                        on_progress(len(succeeded) + len(failed), total, {'success': False, 'error': str(e)})
+
+        return {'succeeded': succeeded, 'failed': failed}
+
+    def bulk_delete_test_cases(self, test_case_ids: List[int], project_id: int = None,
+                                max_workers: int = 5,
+                                on_progress: Callable[[int, int, Dict], None] = None) -> Dict:
+        """
+        Delete multiple test cases concurrently.
+
+        Args:
+            test_case_ids: List of test case IDs to delete
+            project_id: Project ID (uses default if not specified)
+            max_workers: Max concurrent requests (default: 5)
+            on_progress: Callback(completed, total, result) called after each deletion
+
+        Returns:
+            Dict with 'succeeded' (list of deleted IDs) and 'failed' (list of errors)
+        """
+        succeeded = []
+        failed = []
+        total = len(test_case_ids)
+
+        def delete_one(tc_id):
+            self.delete_test_case(tc_id, project_id=project_id)
+            return tc_id
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_id = {executor.submit(delete_one, tc_id): tc_id for tc_id in test_case_ids}
+
+            for future in as_completed(future_to_id):
+                tc_id = future_to_id[future]
+                try:
+                    result = future.result()
+                    succeeded.append(result)
+                    if on_progress:
+                        on_progress(len(succeeded) + len(failed), total, {'success': True, 'id': result})
+                except Exception as e:
+                    failed.append({'test_case_id': tc_id, 'error': str(e)})
+                    if on_progress:
+                        on_progress(len(succeeded) + len(failed), total, {'success': False, 'error': str(e)})
+
+        return {'succeeded': succeeded, 'failed': failed}
 
     # ========== Convenience Methods ==========
 
