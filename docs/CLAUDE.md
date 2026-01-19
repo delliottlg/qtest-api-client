@@ -18,6 +18,7 @@ Python client for qTest Manager REST API. Direct integration - no Excel imports 
 - ✅ Full CRUD for requirements (create, read, update, delete)
 - ✅ Error handling with custom exceptions and retry logic
 - ✅ Bulk operations with concurrent execution and progress callbacks
+- ✅ Pytest test suite (21 unit tests + 8 integration tests)
 
 ## Credentials
 Stored in `.env` (gitignored):
@@ -113,10 +114,29 @@ See [example_workflow.py](../examples/example_workflow.py) for a complete workfl
   - Fixed paginated API responses to return `items` array
   - Pushed to GitHub: https://github.com/delliottlg/qtest-api-client
   - Closed Issue #1, updated Issue #2
+- **2026-01-19**: Major enhancements (Issues #2, #3, #4):
+  - Requirement CRUD: `get_requirement()`, `create_requirement()`, `update_requirement()`, `delete_requirement()`, `get_requirement_fields()`
+  - Error handling: Custom exceptions (`QTestError`, `QTestNotFoundError`, `QTestAuthenticationError`, etc.)
+  - Retry logic: Exponential backoff for rate limits (429) and server errors (5xx)
+  - Bulk operations: `bulk_create_test_cases()`, `bulk_link_to_requirement()`, `bulk_add_to_cycle()`, `bulk_update_test_run_status()`, `bulk_delete_test_cases()`
+  - Pytest test suite: 21 unit tests (mocked) + 8 integration tests (live sandbox)
+  - All issues closed except #5
 
 ## GitHub Issues
 - **#1** (CLOSED): Fixed add_test_to_cycle() 400 error
-- **#2** (CLOSED): More helper methods - requirement CRUD complete
-- **#3** (CLOSED): Better error handling and retry logic
-- **#4** (CLOSED): Bulk operations support
+- **#2** (CLOSED): Requirement CRUD methods
+- **#3** (CLOSED): Error handling with custom exceptions and retry logic
+- **#4** (CLOSED): Bulk operations with concurrent execution
 - **#5** (OPEN): Search and query improvements
+
+## Running Tests
+```bash
+# Unit tests only (fast, mocked)
+pytest tests/test_client.py -v
+
+# Integration tests (live API against sandbox)
+pytest tests/test_integration.py -v -m integration
+
+# All tests
+pytest tests/ -v
+```
