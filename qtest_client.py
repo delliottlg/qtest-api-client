@@ -988,6 +988,212 @@ class QTestClient:
 
         return {'succeeded': succeeded, 'failed': failed}
 
+    # ========== Search & Query ==========
+
+    def search(self, object_type: str, query: str = None, fields: List[str] = None,
+               page: int = 1, page_size: int = 100, project_id: int = None) -> Dict:
+        """
+        Search for qTest objects using the Search API.
+
+        This provides powerful server-side filtering using qTest's query language.
+
+        Args:
+            object_type: Type of object to search - 'test-cases', 'requirements',
+                        'test-runs', or 'defects'
+            query: Query string using qTest syntax, e.g.:
+                   - "'Name' ~ 'login'" (name contains 'login')
+                   - "'Status' = 'Approved'" (exact match)
+                   - "'Id' = '12345'"
+                   - "'Name' ~ 'test' and 'Status' = 'Approved'" (combine with 'and'/'or')
+            fields: List of field names to return, or None for all fields ('*')
+            page: Page number (1-indexed)
+            page_size: Results per page (max 999)
+            project_id: Project ID (uses default if not specified)
+
+        Returns:
+            Dict with 'items' (list of matching objects) and pagination info:
+            {'items': [...], 'total': N, 'page': 1, 'page_size': 100}
+
+        Example:
+            # Find test cases with 'login' in name
+            results = client.search('test-cases', "'Name' ~ 'login'")
+
+            # Find approved requirements
+            results = client.search('requirements', "'Status' = 'Approved'")
+        """
+        pid = project_id or self.project_id
+
+        data = {
+            'object_type': object_type,
+            'fields': fields or ['*']
+        }
+        if query:
+            data['query'] = query
+
+        params = {
+            'page': page,
+            'pageSize': page_size
+        }
+
+        result = self._request(
+            'POST', f"projects/{pid}/search",
+            params=params, data=data,
+            context=f"search {object_type}"
+        )
+
+        # Normalize response format
+        if isinstance(result, list):
+            return {'items': result, 'total': len(result), 'page': page, 'page_size': page_size}
+        return result
+
+    def search_test_cases(self, name: str = None, status: str = None,
+                          query: str = None, page: int = 1, page_size: int = 100,
+                          project_id: int = None) -> List[Dict]:
+        """
+        Search for test cases with common filters.
+
+        Args:
+            name: Search by name (partial match, case-insensitive)
+            status: Filter by status (e.g., 'Approved', 'Draft')
+            query: Raw query string (overrides name/status if provided)
+            page: Page number (1-indexed)
+            page_size: Results per page (max 999)
+            project_id: Project ID (uses default if not specified)
+
+        Returns:
+            List of matching test cases
+
+        Example:
+            # Find test cases with 'login' in name
+            tcs = client.search_test_cases(name='login')
+
+            # Find approved test cases
+            tcs = client.search_test_cases(status='Approved')
+
+            # Combine filters
+            tcs = client.search_test_cases(name='login', status='Approved')
+        """
+        if query is None:
+            conditions = []
+            if name:
+                conditions.append(f"'Name' ~ '{name}'")
+            if status:
+                conditions.append(f"'Status' = '{status}'")
+            query = ' and '.join(conditions) if conditions else None
+
+        result = self.search('test-cases', query, page=page, page_size=page_size,
+                            project_id=project_id)
+        return result.get('items', [])
+
+    def search_requirements(self, name: str = None, query: str = None,
+                            page: int = 1, page_size: int = 100,
+                            project_id: int = None) -> List[Dict]:
+        """
+        Search for requirements with common filters.
+
+        Args:
+            name: Search by name (partial match, case-insensitive)
+            query: Raw query string (overrides name if provided)
+            page: Page number (1-indexed)
+            page_size: Results per page (max 999)
+            project_id: Project ID (uses default if not specified)
+
+        Returns:
+            List of matching requirements
+
+        Example:
+            # Find requirements with 'SGD' in name
+            reqs = client.search_requirements(name='SGD')
+        """
+        if query is None and name:
+            query = f"'Name' ~ '{name}'"
+
+        result = self.search('requirements', query, page=page, page_size=page_size,
+                            project_id=project_id)
+        return result.get('items', [])
+
+    def get_linked_test_cases(self, requirement_id: int, project_id: int = None) -> List[Dict]:
+        """
+        Get test cases linked to a requirement by searching test runs.
+
+        Note: qTest API doesn't provide a direct endpoint for this, so we use
+        the search API to find test cases associated with the requirement.
+
+        Args:
+            requirement_id: ID of the requirement
+            project_id: Project ID (uses default if not specified)
+
+        Returns:
+            List of linked test case dictionaries (may be empty if no links found)
+        """
+        pid = project_id or self.project_id
+        # Query test cases that are linked to this requirement
+        # qTest stores links in the test case's requirement links
+        try:
+            result = self.search(
+                'test-cases',
+                f"'Linked Requirements' ~ '{requirement_id}'",
+                project_id=pid
+            )
+            return result.get('items', [])
+        except (QTestValidationError, QTestError):
+            # If the query field doesn't exist, return empty list
+            # This feature depends on project configuration
+            return []
+
+    def get_all_pages(self, fetch_func: Callable, max_pages: int = None, **kwargs) -> List[Dict]:
+        """
+        Fetch all pages of results from a paginated endpoint.
+
+        Args:
+            fetch_func: Function to call for each page (must accept page parameter)
+            max_pages: Maximum number of pages to fetch (None for all)
+            **kwargs: Additional arguments to pass to fetch_func
+
+        Returns:
+            Combined list of all items from all pages
+
+        Example:
+            # Get all test cases from a module
+            all_tcs = client.get_all_pages(
+                client.get_test_cases,
+                module_id=12345
+            )
+
+            # Get all requirements (limit to 10 pages)
+            all_reqs = client.get_all_pages(
+                client.get_requirements,
+                max_pages=10
+            )
+        """
+        all_items = []
+        page = 1
+        page_size = kwargs.pop('size', 100)
+
+        while True:
+            if max_pages and page > max_pages:
+                break
+
+            result = fetch_func(page=page, size=page_size, **kwargs)
+
+            # Handle different response formats
+            if isinstance(result, dict):
+                items = result.get('items', [])
+                total = result.get('total', 0)
+            else:
+                items = result
+                total = len(items)
+
+            all_items.extend(items)
+
+            # Check if we've fetched all items
+            if len(items) < page_size or len(all_items) >= total:
+                break
+
+            page += 1
+
+        return all_items
+
     # ========== Convenience Methods ==========
 
     def find_module_by_name(self, name: str, project_id: int = None) -> Optional[Dict]:

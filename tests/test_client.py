@@ -332,6 +332,124 @@ class TestRetryLogic:
         assert len(responses.calls) == 3
 
 
+class TestSearchMethods:
+    """Tests for search and query methods"""
+
+    @responses.activate
+    def test_search_basic(self, mock_base_url, mock_token):
+        """search() sends correct request to search endpoint"""
+        responses.add(
+            responses.POST,
+            f"{mock_base_url}/api/v3/projects/100/search",
+            json={'items': [{'id': 1, 'name': 'Test'}], 'total': 1},
+            status=200
+        )
+
+        client = QTestClient(mock_base_url, mock_token, 100)
+        result = client.search('test-cases', "'Name' ~ 'Test'")
+
+        assert result['total'] == 1
+        assert len(result['items']) == 1
+        # Verify request body
+        import json
+        request_body = json.loads(responses.calls[0].request.body)
+        assert request_body['object_type'] == 'test-cases'
+        assert request_body['query'] == "'Name' ~ 'Test'"
+
+    @responses.activate
+    def test_search_test_cases_by_name(self, mock_base_url, mock_token):
+        """search_test_cases builds correct query for name search"""
+        responses.add(
+            responses.POST,
+            f"{mock_base_url}/api/v3/projects/100/search",
+            json={'items': [{'id': 1, 'name': 'Login Test'}], 'total': 1},
+            status=200
+        )
+
+        client = QTestClient(mock_base_url, mock_token, 100)
+        result = client.search_test_cases(name='login')
+
+        assert len(result) == 1
+        import json
+        request_body = json.loads(responses.calls[0].request.body)
+        assert "'Name' ~ 'login'" in request_body['query']
+
+    @responses.activate
+    def test_search_test_cases_combined_filters(self, mock_base_url, mock_token):
+        """search_test_cases combines name and status filters"""
+        responses.add(
+            responses.POST,
+            f"{mock_base_url}/api/v3/projects/100/search",
+            json={'items': [], 'total': 0},
+            status=200
+        )
+
+        client = QTestClient(mock_base_url, mock_token, 100)
+        client.search_test_cases(name='login', status='Approved')
+
+        import json
+        request_body = json.loads(responses.calls[0].request.body)
+        assert "'Name' ~ 'login'" in request_body['query']
+        assert "'Status' = 'Approved'" in request_body['query']
+        assert ' and ' in request_body['query']
+
+    @responses.activate
+    def test_search_requirements_by_name(self, mock_base_url, mock_token):
+        """search_requirements builds correct query for name search"""
+        responses.add(
+            responses.POST,
+            f"{mock_base_url}/api/v3/projects/100/search",
+            json={'items': [{'id': 1, 'name': 'SGD-1234'}], 'total': 1},
+            status=200
+        )
+
+        client = QTestClient(mock_base_url, mock_token, 100)
+        result = client.search_requirements(name='SGD')
+
+        assert len(result) == 1
+        import json
+        request_body = json.loads(responses.calls[0].request.body)
+        assert request_body['object_type'] == 'requirements'
+        assert "'Name' ~ 'SGD'" in request_body['query']
+
+    @responses.activate
+    def test_get_linked_test_cases(self, mock_base_url, mock_token):
+        """get_linked_test_cases returns linked test cases via search"""
+        responses.add(
+            responses.POST,
+            f"{mock_base_url}/api/v3/projects/100/search",
+            json={'items': [{'id': 1, 'name': 'TC1'}, {'id': 2, 'name': 'TC2'}]},
+            status=200
+        )
+
+        client = QTestClient(mock_base_url, mock_token, 100)
+        result = client.get_linked_test_cases(555)
+
+        assert len(result) == 2
+        assert result[0]['name'] == 'TC1'
+        # Verify it used search endpoint with query
+        import json
+        request_body = json.loads(responses.calls[0].request.body)
+        assert request_body['object_type'] == 'test-cases'
+        assert '555' in request_body['query']
+
+    @responses.activate
+    def test_get_linked_test_cases_handles_error(self, mock_base_url, mock_token):
+        """get_linked_test_cases returns empty list on query error"""
+        responses.add(
+            responses.POST,
+            f"{mock_base_url}/api/v3/projects/100/search",
+            json={'message': 'Invalid field'},
+            status=400
+        )
+
+        client = QTestClient(mock_base_url, mock_token, 100)
+        result = client.get_linked_test_cases(555)
+
+        # Should return empty list, not raise
+        assert result == []
+
+
 class TestBulkOperations:
     """Tests for bulk operation methods"""
 

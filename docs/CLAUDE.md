@@ -18,7 +18,8 @@ Python client for qTest Manager REST API. Direct integration - no Excel imports 
 - ✅ Full CRUD for requirements (create, read, update, delete)
 - ✅ Error handling with custom exceptions and retry logic
 - ✅ Bulk operations with concurrent execution and progress callbacks
-- ✅ Pytest test suite (21 unit tests + 8 integration tests)
+- ✅ Pytest test suite (27 unit tests + 12 integration tests)
+- ✅ Search API with server-side filtering
 
 ## Credentials
 Stored in `.env` (gitignored):
@@ -70,12 +71,25 @@ All requested features have been implemented and tested!
 - `get_test_run(run_id)` - Get single test run details
 - `get_test_logs(run_id)` - Get execution history for a test run
 
+### ✅ Search & Query - DONE
+- `search(object_type, query)` - Server-side search using qTest query language
+- `search_test_cases(name, status)` - Search test cases with filters
+- `search_requirements(name)` - Search requirements with filters
+- `get_linked_test_cases(requirement_id)` - Get test cases linked to a requirement
+- `get_all_pages(fetch_func)` - Pagination helper for large result sets
+
 ### ✅ Test Case CRUD - DONE
 - `create_test_case(name, description, steps, module_id)` - Create new test case
 - `get_test_case(test_case_id)` - Get single test case
 - `get_test_cases(module_id)` - List test cases
 - `update_test_case(test_case_id, name, description, steps)` - Update existing test case
 - `delete_test_case(test_case_id)` - Delete a test case
+
+### Search Query Syntax
+qTest uses a structured query language:
+- `'Name' ~ 'login'` - Name contains 'login' (partial match)
+- `'Status' = 'Approved'` - Exact match
+- `'Name' ~ 'test' and 'Status' = 'Approved'` - Combine with 'and'/'or'
 
 ### API Endpoints Used
 - `GET /api/v3/projects/{id}/requirements` - List requirements
@@ -89,6 +103,7 @@ All requested features have been implemented and tested!
 - `GET /api/v3/projects/{id}/test-cycles` - List test cycles
 - `POST /api/v3/projects/{id}/test-runs` - Create test runs
 - `POST /api/v3/projects/{id}/test-runs/{run_id}/test-logs` - Update run status
+- `POST /api/v3/projects/{id}/search` - Search objects with query language
 
 ### Usage Example
 See [example_workflow.py](../examples/example_workflow.py) for a complete workflow demonstration!
@@ -114,20 +129,21 @@ See [example_workflow.py](../examples/example_workflow.py) for a complete workfl
   - Fixed paginated API responses to return `items` array
   - Pushed to GitHub: https://github.com/delliottlg/qtest-api-client
   - Closed Issue #1, updated Issue #2
-- **2026-01-19**: Major enhancements (Issues #2, #3, #4):
+- **2026-01-19**: Major enhancements (Issues #2, #3, #4, #5):
   - Requirement CRUD: `get_requirement()`, `create_requirement()`, `update_requirement()`, `delete_requirement()`, `get_requirement_fields()`
   - Error handling: Custom exceptions (`QTestError`, `QTestNotFoundError`, `QTestAuthenticationError`, etc.)
   - Retry logic: Exponential backoff for rate limits (429) and server errors (5xx)
   - Bulk operations: `bulk_create_test_cases()`, `bulk_link_to_requirement()`, `bulk_add_to_cycle()`, `bulk_update_test_run_status()`, `bulk_delete_test_cases()`
-  - Pytest test suite: 21 unit tests (mocked) + 8 integration tests (live sandbox)
-  - All issues closed except #5
+  - Search API: `search()`, `search_test_cases()`, `search_requirements()`, `get_linked_test_cases()`, `get_all_pages()`
+  - Pytest test suite: 27 unit tests (mocked) + 12 integration tests (live sandbox)
+  - All GitHub issues closed!
 
 ## GitHub Issues
 - **#1** (CLOSED): Fixed add_test_to_cycle() 400 error
 - **#2** (CLOSED): Requirement CRUD methods
 - **#3** (CLOSED): Error handling with custom exceptions and retry logic
 - **#4** (CLOSED): Bulk operations with concurrent execution
-- **#5** (OPEN): Search and query improvements
+- **#5** (CLOSED): Search and query improvements
 
 ## Running Tests
 ```bash

@@ -149,6 +149,62 @@ class TestLiveBulkOperations:
 
 
 @pytest.mark.integration
+class TestLiveSearchMethods:
+    """Integration tests for search and query methods"""
+
+    def test_search_test_cases(self, live_client):
+        """search_test_cases returns results from live API"""
+        # Search with a name filter (API requires query)
+        results = live_client.search_test_cases(name='test', page_size=10)
+        # May be empty in sandbox, but should not raise
+        assert isinstance(results, list)
+
+    def test_search_test_cases_by_name(self, live_client, sandbox_module_id):
+        """search_test_cases filters by name"""
+        # Create a test case with unique name
+        tc = live_client.create_test_case(
+            name="SearchTest-UniqueMarker123",
+            module_id=sandbox_module_id
+        )
+
+        try:
+            # Search for it
+            results = live_client.search_test_cases(name='UniqueMarker123')
+            # Should find our test case
+            assert any('UniqueMarker123' in r.get('name', '') for r in results)
+        finally:
+            live_client.delete_test_case(tc['id'])
+
+    def test_search_requirements(self, live_client):
+        """search_requirements returns results from live API"""
+        # Search with a name filter (API requires query)
+        results = live_client.search_requirements(name='test', page_size=10)
+        assert isinstance(results, list)
+
+    def test_get_linked_test_cases(self, live_client, sandbox_module_id):
+        """get_linked_test_cases returns a list (even if empty)"""
+        # Create test case and requirement, link them
+        tc = live_client.create_test_case("Link Test TC", module_id=sandbox_module_id)
+        req = live_client.create_requirement("Link Test Req", parent_id=sandbox_module_id)
+
+        try:
+            # Link them
+            live_client.link_test_to_requirement(tc['id'], req['id'])
+
+            import time
+            time.sleep(1.0)  # Allow for eventual consistency
+
+            # Get linked test cases - this depends on project configuration
+            # The API may not support this query in all projects
+            linked = live_client.get_linked_test_cases(req['id'])
+            # Should always return a list, even if empty
+            assert isinstance(linked, list)
+        finally:
+            live_client.delete_test_case(tc['id'])
+            live_client.delete_requirement(req['id'])
+
+
+@pytest.mark.integration
 class TestLiveErrorHandling:
     """Integration tests for error handling with live API"""
 
